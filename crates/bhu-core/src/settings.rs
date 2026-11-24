@@ -29,16 +29,6 @@ pub struct Settings {
     /// that re-asks for a permission this broad on every launch teaches people
     /// to dismiss it without reading.
     pub full_disk_prompt_seen: bool,
-    /// Look for a newer BHUninstaller on its own, once a day at most.
-    ///
-    /// Off unless asked for. A tool that reaches out to the network without
-    /// being told to is not what someone installs an uninstaller expecting,
-    /// and the manual check is always there.
-    pub auto_check_updates: bool,
-    /// Unix seconds of the last check, so an enabled auto-check stays polite:
-    /// the unauthenticated GitHub API budget is per IP, shared by everyone
-    /// behind it.
-    pub last_update_check: i64,
 }
 
 fn settings_path() -> Option<PathBuf> {
@@ -87,14 +77,12 @@ mod tests {
     }
 
     #[test]
-    fn nothing_reaches_the_network_unless_asked() {
-        assert!(!Settings::default().auto_check_updates);
-    }
-
-    #[test]
     fn unknown_and_missing_fields_are_tolerated() {
         // Settings written by a newer or older build must still load.
-        let s: Settings = serde_json::from_str(r#"{"removal_sound":true,"future":1}"#).unwrap();
+        let s: Settings = serde_json::from_str(
+            r#"{"removal_sound":true,"auto_check_updates":true,"last_update_check":123,"future":1}"#,
+        )
+        .unwrap();
         assert!(s.removal_sound);
         let s: Settings = serde_json::from_str("{}").unwrap();
         assert!(!s.removal_sound);

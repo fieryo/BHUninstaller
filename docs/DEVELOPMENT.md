@@ -118,8 +118,8 @@ and have not been confirmed working:
 ## Releasing
 
 Tag `vX.Y.Z` and push. CI builds every platform, attaches the installers, and
-**deletes all older releases** — only the newest is ever kept. The in-app
-updater reads `releases/latest`, so every release needs an asset per platform.
+**deletes all older releases** — only the newest is ever kept. Users obtain
+new versions from the fork's releases page; there is no in-app self-updater.
 
 The version lives in three files and they must agree: `Cargo.toml`,
 `app/package.json`, `app/src-tauri/tauri.conf.json`.

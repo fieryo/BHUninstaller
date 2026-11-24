@@ -10,7 +10,6 @@ use bhu_core::cleaner::JunkGroup;
 use bhu_core::extensions::ExtensionGroup;
 use bhu_core::leftovers::OrphanGroup;
 use bhu_core::model::*;
-use bhu_core::selfupdate::{CheckResult, Release};
 use bhu_core::settings::Settings;
 use bhu_core::startup::StartupItem;
 use bhu_core::undo::{RestoreOutcome, UndoEntry};
@@ -470,115 +469,6 @@ fn can_restore() -> bool {
     bhu_core::trash_bin::can_restore_programmatically()
 }
 
-/// Look for a newer BHUninstaller.
-///
-/// `force` is a manual check and always runs. Without it the check only
-/// happens when enabled and when a day has passed.
-#[tauri::command]
-fn check_app_update(force: bool) -> CheckResult {
-    let mut settings = bhu_core::settings::load();
-    if !force
-        && (!settings.auto_check_updates
-            || !bhu_core::selfupdate::check_due(settings.last_update_check))
-    {
-        return CheckResult {
-            update: None,
-            current: bhu_core::VERSION.to_string(),
-            error: None,
-        };
-    }
-
-    let result = bhu_core::selfupdate::check();
-    // Only a check that actually completed resets the clock, so a spell offline
-    // does not postpone the next attempt by a day.
-    if result.error.is_none() {
-        settings.last_update_check = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        let _ = bhu_core::settings::save(&settings);
-    }
-    result
-}
-
-/// Download the update and return where it was saved. Nothing is run.
-#[tauri::command]
-fn download_app_update(release: Release) -> Result<String, String> {
-    bhu_core::selfupdate::download(&release).map(|p| p.to_string_lossy().to_string())
-}
-
-/// Start the downloaded installer and close BHUninstaller.
-///
-/// The app has to be gone before an installer can replace it — on Windows the
-/// installer simply refuses while it is running — so this launches it and then
-/// exits rather than leaving the user to work that out.
-///
-/// The path is not taken on trust even though it came from `download_app_update`
-/// a moment earlier: it must still be inside the download directory this
-/// process created, and carry an installer extension. Running an arbitrary
-/// path handed over from the interface is not something to leave open.
-#[tauri::command]
-fn install_update(app: tauri::AppHandle, path: String) -> Result<(), String> {
-    let path = PathBuf::from(&path);
-    // Exactly the file this process downloaded, not merely something in the
-    // directory it downloaded into.
-    if bhu_core::selfupdate::last_download().as_deref() != Some(path.as_path()) {
-        return Err("that file was not downloaded by this app — refusing to run it".into());
-    }
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase())
-        .unwrap_or_default();
-    if !matches!(ext.as_str(), "dmg" | "pkg" | "msi" | "exe" | "deb" | "rpm") {
-        return Err(format!("{ext} is not an installer — refusing to run it"));
-    }
-    if !path.is_file() {
-        return Err("the download is no longer there".into());
-    }
-
-    let mut command = installer_command(&path, &ext);
-    command
-        .spawn()
-        .map_err(|e| format!("could not start the installer: {e}"))?;
-
-    // Give it a moment to appear before this window disappears, so the user
-    // does not watch the app vanish with nothing yet on screen.
-    let handle = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(1500));
-        handle.exit(0);
-    });
-    Ok(())
-}
-
-fn installer_command(path: &std::path::Path, ext: &str) -> std::process::Command {
-    #[cfg(target_os = "windows")]
-    {
-        // An .msi is data, not a program: it needs msiexec to run it.
-        if ext == "msi" {
-            let mut c = bhu_core::proc::command("msiexec");
-            c.arg("/i").arg(path);
-            return c;
-        }
-        return bhu_core::proc::command(path);
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = ext;
-        let mut c = bhu_core::proc::command("/usr/bin/open");
-        c.arg(path);
-        c
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let _ = ext;
-        let mut c = bhu_core::proc::command("xdg-open");
-        c.arg(path);
-        c
-    }
-}
-
 #[tauri::command]
 fn engine_version() -> String {
     bhu_core::VERSION.to_string()
@@ -702,9 +592,6 @@ pub fn run() {
             relaunch,
             can_restore,
             engine_version,
-            check_app_update,
-            download_app_update,
-            install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running BHUninstaller");

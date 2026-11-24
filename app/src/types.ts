@@ -212,26 +212,9 @@ export interface AccessReport {
   applicable: boolean;
 }
 
-export interface AppRelease {
-  version: string;
-  notes: string;
-  page_url: string;
-  asset_name: string | null;
-  asset_url: string | null;
-  asset_size: number;
-}
-
-export interface AppUpdateCheck {
-  update: AppRelease | null;
-  current: string;
-  error: string | null;
-}
-
 export interface Settings {
   removal_sound: boolean;
   full_disk_prompt_seen: boolean;
-  auto_check_updates: boolean;
-  last_update_check: number;
 }
 
 export type Section =

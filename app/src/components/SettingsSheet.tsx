@@ -4,9 +4,7 @@
  *  the review sheet, where the user can see it — a preference that quietly
  *  changes removal behaviour would undermine that.
  */
-import { useState } from "react";
-import type { AppUpdateCheck, Settings } from "../types";
-import { api } from "../api";
+import type { Settings } from "../types";
 import { IconWarn } from "./icons";
 
 interface Props {
@@ -16,37 +14,13 @@ interface Props {
   version: string;
   onChange: (next: Settings) => void;
   onOpenAccess: () => void;
-  onUpdateFound: (check: AppUpdateCheck) => void;
   onClose: () => void;
 }
 
 export function SettingsSheet({
   settings, accessGranted, accessApplicable, version,
-  onChange, onOpenAccess, onUpdateFound, onClose,
+  onChange, onOpenAccess, onClose,
 }: Props) {
-  const [checking, setChecking] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-
-  const checkNow = async () => {
-    setChecking(true);
-    setStatus(null);
-    try {
-      const result = await api.checkAppUpdate(true);
-      if (result.error) {
-        // A failed check is never reported as "up to date" — that would be a
-        // different and far more misleading claim.
-        setStatus(`Could not check: ${result.error}`);
-      } else if (result.update) {
-        onUpdateFound(result);
-      } else {
-        setStatus(`You are on the latest version (${result.current}).`);
-      }
-    } catch (e) {
-      setStatus(`Could not check: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setChecking(false);
-    }
-  };
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div
@@ -80,33 +54,11 @@ export function SettingsSheet({
 
           <div className="setting-row" style={{ marginTop: 12 }}>
             <div>
-              <div className="setting-name">Check for updates automatically</div>
-              <div className="setting-help">
-                Asks GitHub once a day whether a newer BHUninstaller has been published.
-                Nothing about you is sent, and nothing installs itself.
-              </div>
-            </div>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={settings.auto_check_updates}
-                onChange={(e) =>
-                  onChange({ ...settings, auto_check_updates: e.target.checked })
-                }
-              />
-            </label>
-          </div>
-
-          <div className="setting-row" style={{ marginTop: 12 }}>
-            <div>
               <div className="setting-name">This version</div>
               <div className="setting-help">
-                {status ?? `BHUninstaller ${version}`}
+                BHUninstaller {version}
               </div>
             </div>
-            <button className="btn btn-ghost btn-sm" onClick={checkNow} disabled={checking}>
-              {checking ? "Checking…" : "Check now"}
-            </button>
           </div>
 
           {accessApplicable && (

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
-  AccessReport, AppUpdateCheck, ExtensionGroup, InstalledApp, JunkGroup,
+  AccessReport, ExtensionGroup, InstalledApp, JunkGroup,
   OrphanGroup, RemovalPlan, RemovalReport,
   RestoreOutcome, Section, Settings, StartupItem, UndoEntry, UpdateInfo,
 } from "./types";
@@ -15,7 +15,6 @@ import { UpdatesView } from "./components/UpdatesView";
 import { HistoryView } from "./components/HistoryView";
 import { CleanupView } from "./components/CleanupView";
 import { FullDiskAccessSheet } from "./components/FullDiskAccessSheet";
-import { AppUpdateSheet } from "./components/AppUpdateSheet";
 import {
   IconApps, IconBroom, IconHistory, IconPuzzle, IconRemaining, IconSettings,
   IconStartup, IconUpdates, IconWarn,
@@ -61,11 +60,8 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>({
     removal_sound: false,
     full_disk_prompt_seen: true,
-    auto_check_updates: false,
-    last_update_check: 0,
   });
   const [showSettings, setShowSettings] = useState(false);
-  const [appUpdate, setAppUpdate] = useState<AppUpdateCheck | null>(null);
   const [version, setVersion] = useState("0.1.0");
 
   const [plan, setPlan] = useState<RemovalPlan | null>(null);
@@ -86,11 +82,7 @@ export default function App() {
         api.setSettings(seen);
       }
     });
-    // Honours the setting and the once-a-day throttle; silent when it fails.
-    api.checkAppUpdate(false).then((result) => {
-      if (result.update) setAppUpdate(result);
-      setVersion(result.current);
-    });
+    api.engineVersion().then(setVersion);
     api.listApps().then((a) => {
       setApps(a);
       setLoading(false);
@@ -473,10 +465,6 @@ export default function App() {
         Expert Mode
       </label>
 
-      {appUpdate?.update && (
-        <AppUpdateSheet check={appUpdate} onClose={() => setAppUpdate(null)} />
-      )}
-
       {showAccess && (
         <FullDiskAccessSheet
           report={access}
@@ -491,10 +479,6 @@ export default function App() {
           accessGranted={access.granted}
           accessApplicable={access.applicable}
           version={version}
-          onUpdateFound={(check) => {
-            setShowSettings(false);
-            setAppUpdate(check);
-          }}
           onOpenAccess={() => {
             setShowSettings(false);
             setShowAccess(true);

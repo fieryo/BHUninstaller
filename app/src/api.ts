@@ -6,7 +6,7 @@
  *  there: a design session must never be able to move a real file.
  */
 import type {
-  AccessReport, AppRelease, AppUpdateCheck, ExtensionGroup, InstalledApp,
+  AccessReport, ExtensionGroup, InstalledApp,
   JunkGroup, OrphanGroup, RemovalPlan, RemovalReport,
   RestoreOutcome, Settings, StartupItem, UndoEntry, UpdateInfo,
 } from "./types";
@@ -166,22 +166,9 @@ export const api = {
     return call("restore_removal", { id });
   },
 
-  async checkAppUpdate(force: boolean): Promise<AppUpdateCheck> {
-    if (!IS_TAURI) return { update: null, current: "0.1.0", error: null };
-    return call("check_app_update", { force });
-  },
-
-  async downloadAppUpdate(release: AppRelease): Promise<string> {
-    if (!IS_TAURI) throw new Error("Not available in preview mode.");
-    return call("download_app_update", { release });
-  },
-
-  /// Start the downloaded installer; the app closes itself so it can be
-  /// replaced. Handled in Rust rather than through the opener plugin, which
-  /// refuses open_path unless it is granted in the capability file.
-  async installUpdate(path: string): Promise<void> {
-    if (!IS_TAURI) return;
-    return call("install_update", { path });
+  async engineVersion(): Promise<string> {
+    if (!IS_TAURI) return "0.1.0";
+    return call("engine_version");
   },
 
   async getSettings(): Promise<Settings> {
@@ -189,8 +176,6 @@ export const api = {
       return {
         removal_sound: false,
         full_disk_prompt_seen: true,
-        auto_check_updates: false,
-        last_update_check: 0,
       };
     }
     return call("get_settings");

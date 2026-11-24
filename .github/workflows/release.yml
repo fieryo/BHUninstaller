@@ -1,8 +1,6 @@
 name: Release
 
-# Builds the installers for a tag and attaches them to its release, so the
-# in-app updater has something to find. Every release must keep an asset for
-# each platform and a vX.Y.Z tag — the updater matches on both.
+# Builds the installers for a tag and attaches them to its release.
 on:
   push:
     tags: ["v*"]
@@ -125,7 +123,7 @@ jobs:
 
   # Only the newest release is kept. Older ones are deleted along with their
   # tags, so the releases page never accumulates builds nobody should be
-  # downloading — and the updater only ever has one answer to give.
+  # downloading.
   prune:
     name: Remove older releases
     needs: build
