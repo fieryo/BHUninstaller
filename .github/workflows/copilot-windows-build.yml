@@ -1,0 +1,32 @@
+name: Temporary Windows build
+
+on:
+  push:
+    branches: [copilot/windows-exe-build-20261124]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+        working-directory: app
+      - run: npm run tauri build -- --bundles nsis
+        working-directory: app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BHUninstaller-windows-x64
+          path: |
+            target/release/bhuninstaller.exe
+            target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 7
