@@ -125,6 +125,14 @@ pub struct InstalledApp {
     pub scope: Option<String>,
 }
 
+impl InstalledApp {
+    /// Windows machine-wide uninstallers may need elevation; per-user entries
+    /// come from a registry hive writable by the current user.
+    pub fn is_machine_wide(&self) -> bool {
+        self.scope.as_deref() == Some("All users")
+    }
+}
+
 /// What kind of leftover a path is. Used for grouping in the UI and for
 /// deciding whether admin rights are needed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

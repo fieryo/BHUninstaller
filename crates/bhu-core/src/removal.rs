@@ -163,7 +163,10 @@ pub fn execute(plan: &RemovalPlan, opts: RemovalOptions) -> RemovalReport {
     // software that is half gone — worse than not having started.
     if let Some(command) = &plan.delegated_command {
         let verify = plan.app.as_ref().and_then(|a| a.path.clone());
-        if let Err(e) = run_delegated(command, verify.as_deref()) {
+        // HKCU uninstall entries are writable by the current user and must
+        // never be passed through an elevation prompt.
+        let elevate = plan.app.as_ref().is_some_and(InstalledApp::is_machine_wide);
+        if let Err(e) = run_delegated(command, verify.as_deref(), elevate) {
             if opts.force {
                 // Explicitly asked for: the uninstaller is broken or refuses to
                 // run, and clearing the files is all that is left.
@@ -426,7 +429,12 @@ fn elevated_failure_message(error: &str, items: &[(std::path::PathBuf, u64)]) ->
 /// NOT YET EXERCISED — there is no delegated uninstall on macOS, so this path
 /// only runs on Windows and Linux and has not been tried on either.
 #[cfg(not(target_os = "windows"))]
-fn run_delegated(command: &str, verify: Option<&std::path::Path>) -> Result<(), String> {
+fn run_delegated(
+    command: &str,
+    verify: Option<&std::path::Path>,
+    elevate: bool,
+) -> Result<(), String> {
+    let _ = elevate;
     let _ = verify;
     let status = crate::proc::command("/bin/sh")
         .args(["-c", command])
@@ -444,7 +452,8 @@ fn run_delegated(command: &str, verify: Option<&std::path::Path>) -> Result<(), 
     ))
 }
 
-/// Run a Windows uninstaller, elevated, and wait for it.
+/// Run a Windows uninstaller and wait for it, requesting elevation only for a
+/// machine-wide app.
 ///
 /// NOT YET RUN ON WINDOWS.
 ///
@@ -453,17 +462,22 @@ fn run_delegated(command: &str, verify: Option<&std::path::Path>) -> Result<(), 
 /// re-launches itself elevated and returns immediately — so the caller sees an
 /// exit code that has nothing to do with the real outcome. That is what the
 /// first Windows attempt hit: "exit 1" from an uninstaller that had not
-/// actually run. Starting it elevated avoids both.
+/// actually run. Starting a machine-wide uninstaller elevated avoids both;
+/// per-user uninstallers are never asked to run as administrator.
 ///
 /// And the command comes out of the registry carrying its own quoting, so it is
 /// written to a `.cmd` file and that file is run. Re-quoting someone else's
 /// command line is how this goes wrong.
 #[cfg(target_os = "windows")]
-fn run_delegated(command: &str, verify: Option<&std::path::Path>) -> Result<(), String> {
+fn run_delegated(
+    command: &str,
+    verify: Option<&std::path::Path>,
+    elevate: bool,
+) -> Result<(), String> {
     use std::io::Write;
 
-    // The `.cmd` written here is run elevated, so nothing may be able to put
-    // its own file at that path first. See `proc::private_temp_dir`.
+    // Nothing may be able to put a file at this path first. See
+    // `proc::private_temp_dir`.
     let work = crate::proc::private_temp_dir("BHUninstaller-uninstall")?;
     let script = work.join("run.cmd");
     {
@@ -474,8 +488,9 @@ fn run_delegated(command: &str, verify: Option<&std::path::Path>) -> Result<(), 
     }
 
     let quoted = script.display().to_string().replace('\'', "''");
+    let elevation = if elevate { " -Verb RunAs" } else { "" };
     let inner = format!(
-        "$p = Start-Process -FilePath cmd.exe -ArgumentList '/C','{quoted}' -Verb RunAs -Wait -PassThru; exit $p.ExitCode"
+        "$p = Start-Process -FilePath cmd.exe -ArgumentList '/C','{quoted}'{elevation} -Wait -PassThru; exit $p.ExitCode"
     );
     let out = crate::proc::command("powershell")
         .args([
@@ -596,6 +611,16 @@ mod tests {
         assert!(selected.contains(&"high"));
         assert!(!selected.contains(&"medium"));
         assert!(!selected.contains(&"low"));
+    }
+
+    #[test]
+    fn only_machine_wide_apps_are_marked_for_elevation() {
+        let mut app = app();
+        assert!(!app.is_machine_wide());
+        app.scope = Some("You".into());
+        assert!(!app.is_machine_wide());
+        app.scope = Some("All users".into());
+        assert!(app.is_machine_wide());
     }
 
     #[test]
