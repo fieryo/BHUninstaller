@@ -32,8 +32,6 @@ pub mod model;
 pub mod proc;
 pub mod removal;
 pub mod safety;
-#[cfg(feature = "updates")]
-pub mod selfupdate;
 pub mod settings;
 pub mod startup;
 pub mod trash_bin;

@@ -238,27 +238,97 @@ fn is_shared_root(dir: &Path) -> bool {
 /// files ourselves would leave the registry describing software that is no
 /// longer there.
 pub fn uninstall_command(app: &InstalledApp) -> Option<String> {
-    let sources = [
-        (RegKey::predef(HKEY_LOCAL_MACHINE), UNINSTALL),
-        (RegKey::predef(HKEY_LOCAL_MACHINE), UNINSTALL_WOW),
-        (RegKey::predef(HKEY_CURRENT_USER), UNINSTALL),
-    ];
-    for (root, path) in sources {
-        let Ok(container) = root.open_subkey(path) else {
-            continue;
-        };
-        let Ok(key) = container.open_subkey(&app.id) else {
-            continue;
-        };
+    command_for_scope(app.scope.as_deref(), |machine, path| {
+        let root = RegKey::predef(if machine {
+            HKEY_LOCAL_MACHINE
+        } else {
+            HKEY_CURRENT_USER
+        });
+        let container = root.open_subkey(path).ok()?;
+        let key = container.open_subkey(&app.id).ok()?;
         // The quiet form runs without the vendor's own wizard where offered.
-        if let Ok(quiet) = key.get_value::<String, _>("QuietUninstallString") {
-            return Some(quiet);
-        }
-        if let Ok(normal) = key.get_value::<String, _>("UninstallString") {
-            return Some(normal);
+        Some(
+            key.get_value::<String, _>("QuietUninstallString")
+                .ok()
+                .or_else(|| key.get_value::<String, _>("UninstallString").ok()),
+        )
+    })
+}
+
+fn command_for_scope(
+    scope: Option<&str>,
+    mut read_key: impl FnMut(bool, &str) -> Option<Option<String>>,
+) -> Option<String> {
+    let sources: &[(bool, &str)] = match scope {
+        Some("All users") => &[(true, UNINSTALL), (true, UNINSTALL_WOW)],
+        Some("You") => &[(false, UNINSTALL)],
+        _ => return None,
+    };
+    for &(machine, path) in sources {
+        // Once the first matching key is found, don't look up a different
+        // entry when it has no command. In particular, HKCU must never
+        // supply a command for an app discovered in HKLM.
+        if let Some(command) = read_key(machine, path) {
+            return command;
         }
     }
     None
+}
+
+#[cfg(test)]
+mod uninstall_tests {
+    use super::*;
+
+    #[test]
+    fn machine_scope_never_uses_an_hkcu_command() {
+        let mut calls = Vec::new();
+        let result = command_for_scope(Some("All users"), |machine, path| {
+            calls.push((machine, path.to_string()));
+            if machine && path == UNINSTALL {
+                Some(None)
+            } else if !machine {
+                Some(Some("attacker command".into()))
+            } else {
+                None
+            }
+        });
+        assert_eq!(result, None);
+        assert_eq!(calls, vec![(true, UNINSTALL.to_string())]);
+    }
+
+    #[test]
+    fn missing_machine_entry_does_not_fall_back_to_hkcu() {
+        let result = command_for_scope(Some("All users"), |machine, _| {
+            if machine {
+                None
+            } else {
+                Some(Some("attacker command".into()))
+            }
+        });
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn commands_come_from_the_selected_scope() {
+        let read = |machine, path: &str| {
+            if machine && path == UNINSTALL_WOW {
+                Some(Some("machine".into()))
+            } else if !machine && path == UNINSTALL {
+                Some(Some("user".into()))
+            } else {
+                None
+            }
+        };
+        assert_eq!(
+            command_for_scope(Some("All users"), read).as_deref(),
+            Some("machine")
+        );
+        assert_eq!(
+            command_for_scope(Some("You"), read).as_deref(),
+            Some("user")
+        );
+        assert_eq!(command_for_scope(None, read), None);
+    }
 }
 
 pub fn enrich(app: &mut InstalledApp) {

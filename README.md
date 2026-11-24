@@ -81,11 +81,11 @@ Things it could do and does not, each for a reason:
 - **It does not install app updates.** It tells you what is available and sends
   you to the developer. Running an installer on your behalf is a much larger
   promise than moving a file.
+- **It does not update itself.** Obtain new BHUninstaller versions from this
+  fork's releases page.
 - **It leaves Apple's own caches alone.** Clearing them is usually harmless and
   occasionally is not, and that is not a distinction this app can make for you.
-- **It never sends anything anywhere.** The only network access is the Updates
-  screen and the optional check for a newer BHUninstaller, both of which look up
-  public version numbers and say nothing about you.
+- **The Updates screen looks up public version numbers** for installed apps.
 
 ## 💻 Platform support
 
